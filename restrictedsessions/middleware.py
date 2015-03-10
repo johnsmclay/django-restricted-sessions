@@ -14,8 +14,14 @@ class RestrictedSessionsMiddleware(object):
         if not hasattr(request, 'session'):
             return
 
-        remote_addr_key = getattr(settings, 'RESTRICTEDSESSIONS_REMOTE_ADDR_KEY', 'REMOTE_ADDR')
-        remote_addr = request.META.get(remote_addr_key)
+        remote_addr_key = getattr(settings, 'RESTRICTEDSESSIONS_REMOTE_ADDR_KEY', None)
+        remote_addr = None
+        if remote_addr_key:
+            remote_addr = request.META.get(remote_addr_key)
+        elif request.META.get('HTTP_X_FORWARDED_FOR'):
+            remote_addr = request.META.get('HTTP_X_FORWARDED_FOR').split(',')[-1].strip()
+        else:
+            remote_addr = request.META.get('REMOTE_ADDR')
         if not remote_addr:
             return
 
@@ -44,9 +50,14 @@ class RestrictedSessionsMiddleware(object):
             except AddrFormatError:
                 # session_network must be IPv4, but remote_ip is IPv6
                 return False
+        logger.debug('Request source IP is %s, but the session ip/network is %s' % (remote_ip, session_network))
         return remote_ip in session_network
 
     def validate_ua(self, request):
         if not getattr(settings, 'RESTRICTEDSESSIONS_RESTRICT_UA', True) or not SESSION_UA_KEY in request.session:
             return True
-        return request.session[SESSION_UA_KEY] == request.META.get('HTTP_USER_AGENT')
+        if request.session[SESSION_UA_KEY] == request.META.get('HTTP_USER_AGENT'):
+            return True
+        else:
+            logger.debug('Request source User-Agent is "%s", but the session User-Agent is "%s"' % (request.session[SESSION_UA_KEY], request.META.get('HTTP_USER_AGENT')))
+            return False
